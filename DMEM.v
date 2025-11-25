@@ -1,23 +1,59 @@
 `timescale 1ns / 1ps
 
 module DMEM(
-    output reg [127:0] out
+    input clk,
+    input read_enable,
+    output reg [127:0] read_data,
+    output reg data_ready
     );
 
     reg [7:0] sbox_table [0:255];
-    wire [127:0] data=5;
+    wire [127:0] data=128'h5;
     wire [127:0] key = 128'h2b7e151628aed2a6abf7158809cf4f3c;
     reg [1407:0] keys;
+    reg [127:0] round_keys [0:10];
+
+    reg [3:0] round_counter;
+    reg busy;
+    reg [127:0] state;
+    integer i;
 
     initial begin
         // SBox implemented as lookup table for simplicity
         $readmemh("SBoxROM.mem", sbox_table);
-        // out = MixColumns(ShiftRows(SubByte(data)));
         keys = GenerateKeys(key);
-        out = keys[1279:1152]; // the first generated key
-        $display("out = %h", out);
+        
+        for (i=0;i<11;i=i+1)
+            round_keys[10 - i] = keys[128*(i+1)-1 -: 128];
+
+        data_ready = 0;
+        busy = 0;
     end
 
+    // FSM
+    always @(posedge clk) begin
+        if (read_enable && !busy) begin
+            busy <= 1;
+            // TODO: read data from memory here
+            
+            state <= data ^ round_keys[0];
+            round_counter <= 1;
+            data_ready <= 0;
+        end
+        else if (busy) begin
+            if (round_counter<10) begin
+                state <= MixColumns(ShiftRows(SubByte(state))) ^ round_keys[round_counter];
+                round_counter <= round_counter + 1;
+            end
+            else begin
+                read_data <= ShiftRows(SubByte(state)) ^ round_keys[round_counter];
+                busy <= 0;
+                data_ready <= 1;
+            end
+        end
+    end
+
+    
 
     
 
@@ -30,7 +66,7 @@ module DMEM(
         integer i;
         begin
             for (i=0;i<16;i=i+1) 
-                SubByte[i*8 +: 8] = sbox_table[data[i*8 +: 8]];
+                SubByte[(i+1)*8-1 -: 8] = sbox_table[data[(i+1)*8-1 -: 8]];
         end
     endfunction
 
@@ -41,15 +77,16 @@ module DMEM(
         integer i;
         begin
             for (i=0;i<16;i=i+1) begin
-                bytes[i] = data[i*8 +: 8];
+                bytes[i] = data[(i+1)*8-1 -: 8];
             end
             
             ShiftRows = {
-                bytes[15],  bytes[14],  bytes[13], bytes[12],
-                bytes[10],  bytes[9],  bytes[8], bytes[11],
-                bytes[5],  bytes[4], bytes[7],  bytes[6],
-                bytes[0], bytes[3],  bytes[2],  bytes[1]
+                bytes[15],  bytes[10],  bytes[5], bytes[0],
+                bytes[11],  bytes[6],  bytes[1], bytes[12],
+                bytes[7],  bytes[2], bytes[13],  bytes[8],
+                bytes[3], bytes[14],  bytes[9],  bytes[4]
             };
+
         end
     endfunction
 
@@ -89,30 +126,30 @@ module DMEM(
 
         begin
             for (i=0;i<16;i=i+1)
-                bytes[i] = data[i*8 +: 8];
+                bytes[i] = data[(i+1)*8-1 -: 8];
 
-            column = MixColumn({bytes[15], bytes[11], bytes[7],  bytes[3]});
+            column = MixColumn({bytes[15], bytes[14], bytes[13],  bytes[12]});
             bytes[15] = column[31:24];
-            bytes[11] = column[23:16];
-            bytes[7] = column[15:8];
-            bytes[3] = column[7:0];
+            bytes[14] = column[23:16];
+            bytes[13] = column[15:8];
+            bytes[12] = column[7:0];
 
-            column = MixColumn({bytes[14], bytes[10], bytes[6],  bytes[2]});
-            bytes[14] = column[31:24];
+            column = MixColumn({bytes[11], bytes[10], bytes[9],  bytes[8]});
+            bytes[11] = column[31:24];
             bytes[10] = column[23:16];
-            bytes[6] = column[15:8];
-            bytes[2] = column[7:0];
+            bytes[9] = column[15:8];
+            bytes[8] = column[7:0];
 
-            column = MixColumn({bytes[13], bytes[9], bytes[5], bytes[1]});
-            bytes[13] = column[31:24];
-            bytes[9] = column[23:16];
+            column = MixColumn({bytes[7], bytes[6], bytes[5], bytes[4]});
+            bytes[7] = column[31:24];
+            bytes[6] = column[23:16];
             bytes[5] = column[15:8];
-            bytes[1] = column[7:0];
+            bytes[4] = column[7:0];
 
-            column = MixColumn({bytes[12], bytes[8], bytes[4], bytes[0]});
-            bytes[12] = column[31:24];
-            bytes[8] = column[23:16];
-            bytes[4] = column[15:8];
+            column = MixColumn({bytes[3], bytes[2], bytes[1], bytes[0]});
+            bytes[3] = column[31:24];
+            bytes[2] = column[23:16];
+            bytes[1] = column[15:8];
             bytes[0] = column[7:0];
             
             MixColumns = {
