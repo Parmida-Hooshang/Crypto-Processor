@@ -6,11 +6,15 @@ module DMEM(
 
     reg [7:0] sbox_table [0:255];
     wire [127:0] data=5;
+    wire [127:0] key = 128'h2b7e151628aed2a6abf7158809cf4f3c;
+    reg [1407:0] keys;
 
     initial begin
         // SBox implemented as lookup table for simplicity
         $readmemh("SBoxROM.mem", sbox_table);
-        out = MixColumns(ShiftRows(SubByte(data)));
+        // out = MixColumns(ShiftRows(SubByte(data)));
+        keys = GenerateKeys(key);
+        out = keys[1279:1152]; // the first generated key
         $display("out = %h", out);
     end
 
@@ -28,7 +32,6 @@ module DMEM(
             for (i=0;i<16;i=i+1) 
                 SubByte[i*8 +: 8] = sbox_table[data[i*8 +: 8]];
         end
-        
     endfunction
 
     function [127:0] ShiftRows;
@@ -48,7 +51,6 @@ module DMEM(
                 bytes[0], bytes[3],  bytes[2],  bytes[1]
             };
         end
-        
     endfunction
 
     function [31:0] MixColumn;
@@ -86,9 +88,8 @@ module DMEM(
         integer i;
 
         begin
-            for (i = 0; i < 16; i = i + 1) begin
+            for (i=0;i<16;i=i+1)
                 bytes[i] = data[i*8 +: 8];
-            end
 
             column = MixColumn({bytes[15], bytes[11], bytes[7],  bytes[3]});
             bytes[15] = column[31:24];
@@ -123,5 +124,75 @@ module DMEM(
 
         end
     endfunction
+
+    function [1407:0] GenerateKeys;
+        input [127:0] key;
+        
+        reg [127:0] keys [0:10];
+        reg [31:0] temp;
+        reg [31:0] w [0:43];
+        integer i;
+        
+        begin
+            w[0] = key[127:96];
+            w[1] = key[95:64];
+            w[2] = key[63:32];
+            w[3] = key[31:0];
+            
+            for (i=4;i<44;i=i+1) begin
+                temp = w[i-1];
+                
+                if (i%4==0)
+                    temp = SubWord(Rotate(temp)) ^ Rconst(i/4);
+                
+                w[i] = w[i-4] ^ temp;
+            end
+            
+            for (i=0;i<11;i=i+1)
+                keys[i] = {w[4*i], w[4*i+1], w[4*i+2], w[4*i+3]};
+            
+            GenerateKeys = {
+                        keys[0], keys[1], keys[2], keys[3],
+                        keys[4], keys[5], keys[6], keys[7],
+                        keys[8], keys[9], keys[10]
+                    };
+        end
+    endfunction
+
+    function [31:0] Rotate;
+        input [31:0] w;
+        begin
+            Rotate = {w[23:0], w[31:24]};
+        end
+    endfunction
+
+    function [31:0] SubWord;
+        input [31:0] w;
+        begin
+            SubWord = {sbox_table[w[31:24]], sbox_table[w[23:16]], sbox_table[w[15:8]], sbox_table[w[7:0]]};
+        end
+    endfunction
+
+    function [31:0] Rconst;
+        input [3:0] round;
+        reg [7:0] const;
+        begin
+            case (round)
+                4'h1: const = 8'h01;
+                4'h2: const = 8'h02;
+                4'h3: const = 8'h04;
+                4'h4: const = 8'h08;
+                4'h5: const = 8'h10;
+                4'h6: const = 8'h20;
+                4'h7: const = 8'h40;
+                4'h8: const = 8'h80;
+                4'h9: const = 8'h1b;
+                4'ha: const = 8'h36;
+                default: const = 8'h00;
+            endcase
+            Rconst = {const, 8'h00, 8'h00, 8'h00};
+        end
+    endfunction
+
 
 endmodule
