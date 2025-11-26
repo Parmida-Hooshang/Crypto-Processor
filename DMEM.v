@@ -4,13 +4,17 @@ module DMEM(
     input clk,
     input read_enable,
     input write_enable,
+    input [31:0] address,
+    input [127:0] write_data,
     output reg [127:0] read_data,
-    output reg data_ready
+    output reg done
     );
 
     reg [7:0] sbox_table [0:255];
     reg [7:0] inv_sbox_table [0:255];
-    wire [127:0] data=128'hef28d82739fd8c7147323f7e91c0cbfa;
+    reg [127:0] memory [0:2047];
+    reg [31:0] cur_address;
+
     wire [127:0] key = 128'h2b7e151628aed2a6abf7158809cf4f3c;
     reg [1407:0] keys;
     reg [127:0] round_keys [0:10];
@@ -24,24 +28,26 @@ module DMEM(
         // SBox implemented as lookup table for simplicity
         $readmemh("SBoxROM.mem", sbox_table);
         $readmemh("InvSBoxROM.mem", inv_sbox_table);
+
+        $readmemh("DMEM.mem", memory);
         keys = GenerateKeys(key);
         
         for (i=0;i<11;i=i+1)
             round_keys[10 - i] = keys[128*(i+1)-1 -: 128];
 
-        data_ready = 0;
+        done = 0;
         enc_busy = 0;
         dec_busy = 0;
     end
 
     // FSM
     always @(posedge clk) begin
-        if (write_enable && !enc_busy) begin
+        if (write_enable && !enc_busy && !dec_busy) begin
             enc_busy <= 1;
-            // TODO: read the 128-bit data block here
-            
-            state <= data ^ round_keys[0];
+            cur_address <= address;
+            state <= write_data ^ round_keys[0];
             round_counter <= 1;
+            done <= 0;
         end
         else if (enc_busy) begin
             if (round_counter<10) begin
@@ -49,20 +55,19 @@ module DMEM(
                 round_counter <= round_counter + 1;
             end
             else begin
-                // TODO: write the block to memory here
-                $display("cipher text = %h", ShiftRows(SubByte(state)) ^ round_keys[round_counter]);
+                memory[cur_address[31:4]] = ShiftRows(SubByte(state)) ^ round_keys[round_counter];
+                $writememh("DMEM.mem", memory);
                 enc_busy <= 0;
+                done <= 1;
             end
         end
 
 
-        else if (read_enable && !dec_busy) begin
+        else if (read_enable && !dec_busy && !enc_busy) begin
             dec_busy <= 1;
-            // TODO: read the 128-bit data block here
-            
-            state <= InvSubByte(InvShiftRows(data ^ round_keys[10]));
+            state <= InvSubByte(InvShiftRows(memory[address[31:4]] ^ round_keys[10]));
             round_counter <= 9;
-            data_ready <= 0;
+            done <= 0;
         end
         else if (dec_busy) begin
             if (round_counter>0) begin
@@ -71,9 +76,12 @@ module DMEM(
             end
             else begin
                 read_data <= state ^ round_keys[round_counter];
-                data_ready <= 1;
+                dec_busy <= 0;
+                done <= 1;
             end
         end
+        else 
+            done <= 0;
     end
 
     
