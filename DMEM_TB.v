@@ -10,6 +10,7 @@ parameter PERIOD  = 50;
 // DMEM Inputs
 reg   clk                                  = 0 ;
 reg   read_enable                          = 0 ;
+reg   write_enable                         = 0 ;
 
 // DMEM Outputs
 wire  [127:0]  read_data                   ;
@@ -24,7 +25,8 @@ end
 
 DMEM  u_DMEM (
     .clk                     ( clk                  ),     
-    .read_enable             ( read_enable          ),    
+    .read_enable             ( read_enable          ), 
+    .write_enable            ( write_enable         ),    
 
     .read_data               ( read_data            ),     
     .data_ready              ( data_ready           )      
@@ -37,7 +39,7 @@ begin
 
     
     @(posedge data_ready)
-    $display("ciphertext = %h", read_data);
+    $display("plain text = %h", read_data);
 
     $finish;
 end

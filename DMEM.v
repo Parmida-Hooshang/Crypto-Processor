@@ -3,51 +3,74 @@
 module DMEM(
     input clk,
     input read_enable,
+    input write_enable,
     output reg [127:0] read_data,
     output reg data_ready
     );
 
     reg [7:0] sbox_table [0:255];
-    wire [127:0] data=128'h5;
+    reg [7:0] inv_sbox_table [0:255];
+    wire [127:0] data=128'hef28d82739fd8c7147323f7e91c0cbfa;
     wire [127:0] key = 128'h2b7e151628aed2a6abf7158809cf4f3c;
     reg [1407:0] keys;
     reg [127:0] round_keys [0:10];
 
     reg [3:0] round_counter;
-    reg busy;
+    reg enc_busy, dec_busy;
     reg [127:0] state;
     integer i;
 
     initial begin
         // SBox implemented as lookup table for simplicity
         $readmemh("SBoxROM.mem", sbox_table);
+        $readmemh("InvSBoxROM.mem", inv_sbox_table);
         keys = GenerateKeys(key);
         
         for (i=0;i<11;i=i+1)
             round_keys[10 - i] = keys[128*(i+1)-1 -: 128];
 
         data_ready = 0;
-        busy = 0;
+        enc_busy = 0;
+        dec_busy = 0;
     end
 
     // FSM
     always @(posedge clk) begin
-        if (read_enable && !busy) begin
-            busy <= 1;
-            // TODO: read data from memory here
+        if (write_enable && !enc_busy) begin
+            enc_busy <= 1;
+            // TODO: read the 128-bit data block here
             
             state <= data ^ round_keys[0];
             round_counter <= 1;
-            data_ready <= 0;
         end
-        else if (busy) begin
+        else if (enc_busy) begin
             if (round_counter<10) begin
                 state <= MixColumns(ShiftRows(SubByte(state))) ^ round_keys[round_counter];
                 round_counter <= round_counter + 1;
             end
             else begin
-                read_data <= ShiftRows(SubByte(state)) ^ round_keys[round_counter];
-                busy <= 0;
+                // TODO: write the block to memory here
+                $display("cipher text = %h", ShiftRows(SubByte(state)) ^ round_keys[round_counter]);
+                enc_busy <= 0;
+            end
+        end
+
+
+        else if (read_enable && !dec_busy) begin
+            dec_busy <= 1;
+            // TODO: read the 128-bit data block here
+            
+            state <= InvSubByte(InvShiftRows(data ^ round_keys[10]));
+            round_counter <= 9;
+            data_ready <= 0;
+        end
+        else if (dec_busy) begin
+            if (round_counter>0) begin
+                state <= InvSubByte(InvShiftRows(InvMixColumns(state ^ round_keys[round_counter])));
+                round_counter <= round_counter - 1;
+            end
+            else begin
+                read_data <= state ^ round_keys[round_counter];
                 data_ready <= 1;
             end
         end
@@ -60,6 +83,8 @@ module DMEM(
 
 
     // ---------- AES Functions ---------- //
+
+    // ----------- Encryption ----------- //
     function [127:0] SubByte;
         input [127:0] data;
 
@@ -101,10 +126,10 @@ module DMEM(
             a2 = column[15:8];
             a3 = column[7:0];
             
-            b0 = Mul2(a0) ^ Mul2(a1) ^ a1 ^ a2 ^ a3;
-            b1 = a0 ^ Mul2(a1) ^ Mul2(a2) ^ a2 ^ a3;
-            b2 = a0 ^ a1 ^ Mul2(a2) ^ Mul2(a3) ^ a3;
-            b3 = Mul2(a0) ^ a0 ^ a1 ^ a2 ^ Mul2(a3);
+            b0 = Mul2(a0) ^ (Mul2(a1) ^ a1) ^ a2 ^ a3;
+            b1 = a0 ^ Mul2(a1) ^ (Mul2(a2) ^ a2) ^ a3;
+            b2 = a0 ^ a1 ^ Mul2(a2) ^ (Mul2(a3) ^ a3);
+            b3 = (Mul2(a0) ^ a0) ^ a1 ^ a2 ^ Mul2(a3);
             
             MixColumn = {b0, b1, b2, b3};
         end
@@ -161,6 +186,132 @@ module DMEM(
 
         end
     endfunction
+
+    // ----------- Decryption ----------- //
+    function [127:0] InvSubByte;
+        input [127:0] data;
+
+        integer i;
+        begin
+            for (i=0;i<16;i=i+1) 
+                InvSubByte[(i+1)*8-1 -: 8] = inv_sbox_table[data[(i+1)*8-1 -: 8]];
+        end
+    endfunction
+
+    function [127:0] InvShiftRows;
+        input [127:0] data;
+
+        reg [7:0] bytes [15:0];
+        integer i;
+        begin
+            for (i=0;i<16;i=i+1) begin
+                bytes[i] = data[(i+1)*8-1 -: 8];
+            end
+            
+            InvShiftRows = {
+                bytes[15], bytes[2], bytes[5], bytes[8],
+                bytes[11], bytes[14], bytes[1], bytes[4],
+                bytes[7], bytes[10], bytes[13], bytes[0],
+                bytes[3], bytes[6], bytes[9], bytes[12]
+            };
+
+        end
+    endfunction
+
+     function [31:0] InvMixColumn;
+        input [31:0] column;
+
+        reg [7:0] a0, a1, a2, a3;
+        reg [7:0] b0, b1, b2, b3;
+        begin
+            a0 = column[31:24];
+            a1 = column[23:16]; 
+            a2 = column[15:8];
+            a3 = column[7:0];
+            
+            b0 = Mul14(a0) ^ Mul11(a1) ^ Mul13(a2) ^ Mul9(a3);
+            b1 = Mul9(a0) ^ Mul14(a1) ^ Mul11(a2) ^ Mul13(a3);
+            b2 = Mul13(a0) ^ Mul9(a1) ^ Mul14(a2) ^ Mul11(a3);
+            b3 = Mul11(a0) ^ Mul13(a1) ^ Mul9(a2) ^ Mul14(a3);
+            
+            InvMixColumn = {b0, b1, b2, b3};
+        end
+    endfunction
+
+    function [7:0] Mul14;
+        input [7:0] a;
+        begin
+            Mul14 = Mul2(Mul2(Mul2(a) ^ a) ^ a);
+        end
+    endfunction
+
+    function [7:0] Mul11;
+        input [7:0] a;
+        begin
+            Mul11 = Mul2(Mul2(Mul2(a)) ^ a) ^ a;
+        end
+    endfunction
+
+    function [7:0] Mul13;
+        input [7:0] a;
+        begin
+            Mul13 = Mul2(Mul2(Mul2(a) ^ a)) ^ a;
+        end
+    endfunction
+
+    function [7:0] Mul9;
+        input [7:0] a;
+        begin
+            Mul9 = Mul2(Mul2(Mul2(a))) ^ a;
+        end
+    endfunction
+
+    function [127:0] InvMixColumns;
+        input [127:0] data;
+
+        reg [7:0] bytes [15:0];
+        reg [31:0] column;
+        integer i;
+
+        begin
+            for (i=0;i<16;i=i+1)
+                bytes[i] = data[(i+1)*8-1 -: 8];
+
+            column = InvMixColumn({bytes[15], bytes[14], bytes[13],  bytes[12]});
+            bytes[15] = column[31:24];
+            bytes[14] = column[23:16];
+            bytes[13] = column[15:8];
+            bytes[12] = column[7:0];
+
+            column = InvMixColumn({bytes[11], bytes[10], bytes[9],  bytes[8]});
+            bytes[11] = column[31:24];
+            bytes[10] = column[23:16];
+            bytes[9] = column[15:8];
+            bytes[8] = column[7:0];
+
+            column = InvMixColumn({bytes[7], bytes[6], bytes[5], bytes[4]});
+            bytes[7] = column[31:24];
+            bytes[6] = column[23:16];
+            bytes[5] = column[15:8];
+            bytes[4] = column[7:0];
+
+            column = InvMixColumn({bytes[3], bytes[2], bytes[1], bytes[0]});
+            bytes[3] = column[31:24];
+            bytes[2] = column[23:16];
+            bytes[1] = column[15:8];
+            bytes[0] = column[7:0];
+            
+            InvMixColumns = {
+                bytes[15], bytes[14], bytes[13], bytes[12],
+                bytes[11], bytes[10], bytes[9], bytes[8],
+                bytes[7], bytes[6], bytes[5], bytes[4],
+                bytes[3], bytes[2], bytes[1], bytes[0]
+            };
+
+        end
+    endfunction
+
+    // ----------- Round Keys ----------- //
 
     function [1407:0] GenerateKeys;
         input [127:0] key;
