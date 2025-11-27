@@ -25,7 +25,7 @@ module DMEM(
     integer i;
 
     initial begin
-        // SBox implemented as lookup table for simplicity
+        // SBox implemented as lookup tables for simplicity
         $readmemh("SBoxROM.mem", sbox_table);
         $readmemh("InvSBoxROM.mem", inv_sbox_table);
 
