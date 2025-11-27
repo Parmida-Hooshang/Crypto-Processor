@@ -5,7 +5,7 @@ module ALU(
     input [31:0] source_A,
     input [31:0] source_B,
     output zero,
-    output [31:0] result
+    output reg [31:0] result
     );
 	 
 	always @(*) begin

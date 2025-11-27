@@ -6,7 +6,7 @@ module MUX4(
     input [31:0] source_B,
     input [31:0] source_C,
     input [31:0] source_D,
-    output reg [31:0] result,
+    output reg [31:0] result
     );
 
     always @(*) begin

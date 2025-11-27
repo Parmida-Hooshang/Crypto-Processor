@@ -8,7 +8,7 @@ module RF(
     input [4:0] write_reg,
     input [31:0] write_data,
     output [31:0] data_1,
-    output [31:0] data_2,
+    output [31:0] data_2
     );
 
     reg [31:0] registers [0:31];
