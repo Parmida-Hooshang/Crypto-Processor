@@ -141,7 +141,7 @@ module Processor(
 
     MUX2 ALU_to_PC(
         .select(PC_src),
-        .source_A(ALU_res),
+        .source_A(PC + 4),
         .source_B(ALU_out),
         .result(PC_prime)
     );

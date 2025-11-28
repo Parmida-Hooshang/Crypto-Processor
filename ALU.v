@@ -4,7 +4,7 @@ module ALU(
     input [3:0] control,
     input [31:0] source_A,
     input [31:0] source_B,
-    output zero,
+    output reg zero,
     output reg [31:0] result
     );
 	 
@@ -24,8 +24,9 @@ module ALU(
             4'b1111: result = $signed(source_A) >>> source_B[4:0];
             default: result = 32'b0;
         endcase
+
+        if (result == 32'b0)
+            zero = 1'b1;
 	end
-	
-	assign zero = (result == 32'b0);
 
 endmodule

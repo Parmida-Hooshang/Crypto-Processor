@@ -2,7 +2,7 @@
 
 module IMEM(
     input [31:0] address,
-    output [31:0] instruction
+    output reg [31:0] instruction
     );
 	 
 	reg [31:0] memory[0:1023];
@@ -11,6 +11,8 @@ module IMEM(
 		$readmemh("IMEM.mem", memory);
 	end
 	
-	assign instruction = memory[address[31:2]];
+	always @(*) begin
+		instruction = memory[address[31:2]];
+	end
 
 endmodule

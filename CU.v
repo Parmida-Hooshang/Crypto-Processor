@@ -42,11 +42,14 @@ module CU(
         Jmp = 6'b000010;
 
     reg [3:0] current_state, next_state;
-    reg branch, PC_write, ALU_op;
+    reg branch, PC_write, ALU_op, just_entered_MemRead;
 
 
     initial begin
         current_state = Fetch;
+        mem_read = 1'b0;
+        mem_write = 1'b0;
+        branch = 1'b0;
     end
 
     always @(posedge clk) begin
@@ -54,17 +57,26 @@ module CU(
     end
 
     always @(*) begin
-        PC_en = (zero & branch) | PC_write;
+        
+        if ((zero == 1'b1 && branch == 1'b1) || PC_write == 1'b1)
+            PC_en = 1'b1;
+        else
+            PC_en = 1'b0;
+
         case (current_state)
             Fetch: begin
+                // $display("Fetch");
                 ALU_srcA = 1'b0; ALU_srcB = 2'b01;
-                ALU_op = 2'b00; PC_src = 2'b00;
-                IR_write = 1'b1; PC_write = 1'b1; 
+                ALU_op = 2'b00;
+                IR_write = 1'b1; PC_write = 1'b1;
+                reg_write = 1'b0;
                 next_state = Decode;
             end 
             Decode: begin
+                // $display("Decode --> %h", operation);
                 ALU_srcA = 1'b0; ALU_srcB = 2'b11;
-                ALU_op = 2'b00;
+                ALU_op = 2'b00; PC_write = 1'b0;
+                IR_write = 1'b0; PC_src = 1'b0;
                 case (operation)
                     LW: next_state = MemAdr;
                     SW: next_state = MemAdr; 
@@ -72,30 +84,43 @@ module CU(
                     Beq: next_state = Branch;
                     Imm: next_state = IExec;
                     Jmp: next_state = Jump;
-                    default: next_state = MemAdr;
+                    default: next_state = Decode;
                 endcase
             end
             MemAdr: begin
+                // $display("MemAdr");
+                PC_write = 1'b0;
                 ALU_srcA = 1'b1; ALU_srcB = 2'b10;
                 ALU_op = 2'b00;
                 next_state = MemRead;
+                just_entered_MemRead = 1'b1;
             end
             MemRead: begin
-                mem_read = 1'b1;
-                if (done) begin
-                    next_state = (operation == LW ? MemWB : MemW);
+                // $display("MemRead");
+                if (just_entered_MemRead == 1'b1) begin
+                    mem_read = 1'b1;
+                    just_entered_MemRead = 1'b0;
+                end
+                else
                     mem_read = 1'b0;
+                if (done == 1'b1) begin
+                    // $display("Shouldn't be here! --> %h", operation);
+                    next_state = (operation == LW ? MemWB : MemW);
                 end
                 else
                     next_state = MemRead;
             end
             MemWB: begin
+                // $display("MemWB");
                 reg_dest = 1'b0; mem_to_reg = 1'b1;
                 reg_write = 1'b1;
+                next_state = Fetch;
             end
             MemW: begin
+                // $display("MemW");
                 mem_write = 1'b1;
-                if (done) begin  
+                if (done == 1'b1) begin  
+                    // $display("Too Early");
                     next_state = Fetch;
                     mem_write = 1'b0;
                 end
@@ -103,24 +128,28 @@ module CU(
                     next_state = MemW;
             end
             Exec: begin
+                // $display("Exe");
                 ALU_srcA = 1'b1; ALU_srcB = 2'b00;
-                ALU_op = 2'b10;
+                ALU_op = 2'b10; PC_write = 1'b0;
                 next_state = ALUWB;
             end
             ALUWB: begin
+                // $display("ALUWB");
                 reg_dest = 1'b1; mem_to_reg = 1'b0;
                 reg_write = 1'b1;
                 next_state = Fetch;
             end
             Branch: begin
+                $display("branch");
                 ALU_srcA = 1'b1; ALU_srcB = 2'b00;
-                ALU_op = 2'b01; PC_src = 2'b01;
+                ALU_op = 2'b01; PC_src = 1'b1;
                 branch = 1'b1;
                 next_state = Fetch;
             end
             IExec: begin
+                // $display("IX");
                 ALU_srcA = 1'b1; ALU_srcB = 2'b10;
-                ALU_op = 2'b00;
+                ALU_op = 2'b00; PC_write = 1'b0;
                 next_state = IWB;
             end
             IWB: begin
@@ -129,7 +158,7 @@ module CU(
                 next_state = Fetch;
             end
             Jump: begin
-                PC_src = 2'b10; PC_write = 1'b1;
+                PC_src = 2'b0; PC_write = 1'b1;
                 next_state = Fetch;
             end
             default: next_state = Fetch;
@@ -154,10 +183,10 @@ module CU(
             end
             LW: ALU_control = 4'b0010;
             SW: ALU_control = 4'b0010;
-            Branch: ALU_control = 4'b0110;
+            Beq: ALU_control = 4'b0110;
             // from possible immediate instructions, 
             // only addi has been implemented
-            IExec: ALU_control = 4'b0010;
+            Imm: ALU_control = 4'b0010;
             default: ALU_control = 4'b0010;
         endcase
     end

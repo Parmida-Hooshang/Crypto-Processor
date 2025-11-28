@@ -43,6 +43,7 @@ module DMEM(
     // FSM
     always @(posedge clk) begin
         if (write_enable && !enc_busy && !dec_busy) begin
+            // $display("Encryption Started");
             enc_busy <= 1;
             cur_address <= address;
             state <= write_data ^ round_keys[0];
@@ -55,6 +56,7 @@ module DMEM(
                 round_counter <= round_counter + 1;
             end
             else begin
+                // $display("Encryption Finished");
                 memory[cur_address[31:4]] = ShiftRows(SubByte(state)) ^ round_keys[round_counter];
                 $writememh("DMEM.mem", memory);
                 enc_busy <= 0;
@@ -64,6 +66,7 @@ module DMEM(
 
 
         else if (read_enable && !dec_busy && !enc_busy) begin
+            // $display("Decryption Started -- > %h", memory[address[31:4]]);
             dec_busy <= 1;
             state <= InvSubByte(InvShiftRows(memory[address[31:4]] ^ round_keys[10]));
             round_counter <= 9;
@@ -75,6 +78,7 @@ module DMEM(
                 round_counter <= round_counter - 1;
             end
             else begin
+                // $display("Decryption Finished --> %h", state ^ round_keys[round_counter]);
                 read_data <= state ^ round_keys[round_counter];
                 dec_busy <= 0;
                 done <= 1;
