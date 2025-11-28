@@ -1,15 +1,15 @@
 `timescale 1ns / 1ps
 
-module PC(
+module InterReg(
     input clk,
     input enable,
-    input [31:0] next_pc,
-    output reg [31:0] pc
+    input [31:0] inp,
+    output reg [31:0] out
     );
 	
     always @(posedge clk) begin
         if (enable)
-            pc <= next_pc;
+            out <= inp;
     end
 
 endmodule

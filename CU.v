@@ -9,11 +9,12 @@ module CU(
     output reg PC_en,
     output reg PC_src,
     output reg ALU_srcA,
-    output reg ALU_srcB,
+    output reg [1:0] ALU_srcB,
     output reg reg_write,
     output reg mem_to_reg,
     output reg reg_dest,
     output reg mem_write,
+    output reg mem_read,
     output reg IR_write,
     output reg [3:0] ALU_control
     );
@@ -80,8 +81,11 @@ module CU(
                 next_state = MemRead;
             end
             MemRead: begin
-                if (done)
+                mem_read = 1'b1;
+                if (done) begin
                     next_state = (operation == LW ? MemWB : MemW);
+                    mem_read = 1'b0;
+                end
                 else
                     next_state = MemRead;
             end
@@ -91,8 +95,10 @@ module CU(
             end
             MemW: begin
                 mem_write = 1'b1;
-                if (done)   
+                if (done) begin  
                     next_state = Fetch;
+                    mem_write = 1'b0;
+                end
                 else 
                     next_state = MemW;
             end
